@@ -56,39 +56,49 @@ system_prompt = """
     Outout: {{ "step": "output", "content": "Created magic.txt in the current directory"}}
 """
 
-messages = [
-    { "role": "system", "content": system_prompt }
-]
+def agent_loop():
+    messages = [
+        { "role": "system", "content": system_prompt }
+    ]
+    
+    while True:
+        user_query = input("Agent> ")
+        
+        if user_query.lower() in ['exit', 'quit']:
+            print("Exiting agent...")
+            break
+        
+        messages.append({"role": "user", "content": user_query})
+        
+        while True:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                response_format={"type": "json_object"},
+                messages=messages
+            )
 
-user_query = input('> ')
-messages.append({"role": "user", "content": user_query})
+            parsed_output = json.loads(response.choices[0].message.content)
+            messages.append({"role": "assistant", "content": json.dumps(parsed_output)})
 
-while True:
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        response_format={"type": "json_object"},
-        messages=messages
-    )
+            if parsed_output.get("step") == "plan":
+                print(f"{parsed_output.get('content')}")
+                continue
 
-    parsed_output = json.loads(response.choices[0].message.content)
-    messages.append({"role": "assistant", "content": json.dumps(parsed_output)})
+            if parsed_output.get("step") == "action":
+                tool_name = parsed_output.get("function")
+                tool_input = parsed_output.get("input")
 
-    if parsed_output.get("step") == "plan":
-        print(f"{parsed_output.get('content')}")
-        continue
+                if tool_name in available_tools:
+                    output = available_tools[tool_name]["fn"](tool_input)
+                    messages.append({
+                        "role": "assistant",
+                        "content": json.dumps({"step": "observe", "output": output})
+                    })
+                    continue
 
-    if parsed_output.get("step") == "action":
-        tool_name = parsed_output.get("function")
-        tool_input = parsed_output.get("input")
+            if parsed_output.get("step") == "output":
+                print(f"{parsed_output.get('content')}")
+                break
 
-        if tool_name in available_tools:
-            output = available_tools[tool_name]["fn"](tool_input)
-            messages.append({
-                "role": "assistant",
-                "content": json.dumps({"step": "observe", "output": output})
-            })
-            continue
-
-    if parsed_output.get("step") == "output":
-        print(f"{parsed_output.get('content')}")
-        break
+if __name__ == "__main__":
+    agent_loop()
